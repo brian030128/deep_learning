@@ -41,7 +41,9 @@ class OxfordPetDataset(torch.utils.data.Dataset):
 
         sample = dict(image=image, mask=mask, trimap=trimap)
         if self.transform is not None:
-            sample = self.transform(**sample)
+            sample_transformed = self.transform(**sample)
+            # concat the transformed sample with the original sample
+            sample = {**sample, **sample_transformed}
 
         return sample
 
@@ -147,7 +149,7 @@ import albumentations as A
 transform = A.Compose([
     A.RandomResizedCrop(size=(256, 256), p=1.0),
     A.HorizontalFlip(p=0.2),
-    A.Affine(),
+    A.Affine(p=1),
 ])
 
 
