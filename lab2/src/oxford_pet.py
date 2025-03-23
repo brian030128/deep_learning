@@ -22,7 +22,7 @@ class OxfordPetDataset(torch.utils.data.Dataset):
         self.filenames = self._read_split()  # read train/valid/test splits
 
     def __len__(self):
-        return len(self.filenames)
+        return len(self.filenames) * 2
 
     def __getitem__(self, idx):
         if isinstance(idx, slice):
@@ -41,9 +41,8 @@ class OxfordPetDataset(torch.utils.data.Dataset):
 
         sample = dict(image=image, mask=mask, trimap=trimap)
         if self.transform is not None:
-            sample_transformed = self.transform(**sample)
-            # concat the transformed sample with the original sample
-            sample = {**sample, **sample_transformed}
+            if idx % 2 == 0:
+                sample = self.transform(**sample)
 
         return sample
 
@@ -143,6 +142,7 @@ def extract_archive(filepath):
     dst_dir = os.path.splitext(filepath)[0]
     if not os.path.exists(dst_dir):
         shutil.unpack_archive(filepath, extract_dir)
+
 
 import albumentations as A
 
