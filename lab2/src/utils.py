@@ -48,3 +48,17 @@ def display_mask(mask):
     plt.axis('off')  # Hide axis
     plt.title('Binary Tensor Visualization')
     plt.show()
+
+
+
+class DiceLoss(torch.nn.Module):
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: Tensor of shape [B,C,H,W] - network raw logits
+            targets: Tensor of shape [B,H,W] with class indices (0, 1, 2, etc.)
+        """
+        output_mask = output_2_mask(inputs)
+        score = dice_score(output_mask, targets)
+        return  -torch.log(score)
+

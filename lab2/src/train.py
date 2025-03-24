@@ -14,12 +14,8 @@ import json
 
 
 def train(args):
-    start = int(time.time())
 
-
-    metric_file = open(f"metrics/{start}_metrics.jsonl", "w")
-
-    dataset = oxford_pet.load_dataset(args.data_path, "train")
+    training_dataset = oxford_pet.load_dataset(args.data_path, "train")
     val_dataset = oxford_pet.load_dataset(args.data_path, "valid")
 
     model = models.unet.UNet(n_channels=3, n_classes=2)
@@ -29,25 +25,45 @@ def train(args):
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    criterion = torch.nn.CrossEntropyLoss()
+    cross_entropy = torch.nn.CrossEntropyLoss()
+
+    best_model = train_inner(model, training_dataset, val_dataset, cross_entropy, optimizer, device, args.epochs, args.batch_size)
+    model.load_state_dict(torch.load(f"{args.checkpoint}/{best_model}.pth"))
+
+    dice_loss = utils.DiceLoss()
+
+    best_model = train_inner(model, training_dataset, val_dataset, dice_loss, optimizer, device, int(args.epochs/3), args.batch_size)
 
 
-    # Train the model
+
     
-    for epoch in range(args.epochs):
-        print(f"Epoch {epoch + 1}/{args.epochs}")
+    
+
+def train_inner(model, training_dataset, validation_dataset, loss_function, optimizer, device, epochs = 1, batch_size = 3) -> str:
+    """
+    Returns the name of the best model.
+    """
+
+    start = int(time.time())
+    metric_file = open(f"metrics/{start}_metrics.jsonl", "w")
+
+    best_model = ""
+    best_dice_score = ""
+
+    for epoch in range(epochs):
+        print(f"Epoch {epoch + 1}/{epochs}")
         model.train()
         train_loss = []
-        with tqdm(total=len(dataset), desc=f"Epoch {epoch + 1} [Training]", unit="sample") as pbar:
-            for i in range(0, len(dataset), args.batch_size):
-                batch = dataset[i:i+args.batch_size]
+        with tqdm(total=len(training_dataset), desc=f"Epoch {epoch + 1} [Training]", unit="sample") as pbar:
+            for i in range(0, len(training_dataset), batch_size):
+                batch = training_dataset[i:i+batch_size]
 
                 images = torch.tensor(np.array([x['image'] for x in batch]), dtype=torch.float32).to(device)
                 masks = torch.tensor(np.array([x['mask'] for x in batch]), dtype=torch.long).to(device)
 
                 optimizer.zero_grad()
                 outputs = model(images)
-                loss = criterion(outputs, masks)
+                loss = loss_function(outputs, masks)
                 loss.backward()
                 optimizer.step()
 
@@ -57,11 +73,10 @@ def train(args):
 
         avg_train_loss = sum(train_loss) / len(train_loss)  # Calculate average training loss
         print(f"Training Loss after Epoch {epoch + 1}: {avg_train_loss:.4f}")
-        
-
 
         # Validation phase
-        eval_loss, eval_dice_score = eval.evaluate(model, val_dataset,device, args.batch_size)
+        model.eval()
+        eval_loss, eval_dice_score = eval.evaluate(model, validation_dataset,device, batch_size)
 
         print(f"Validation Loss after Epoch {epoch + 1}: {eval_loss:.4f}")
         print(f"Dice Score after Epoch {epoch + 1}: {eval_dice_score:.4f}")
@@ -69,11 +84,15 @@ def train(args):
         json.dump({"loss": train_loss, "dice": eval_dice_score}, metric_file)
         metric_file.write("\n")
         metric_file.flush()
-        
-        torch.save(model.state_dict(), f"{args.checkpoint}/{start}_{eval_loss}_{epoch}_model.pth")
-    
-    
 
+        name = f"{start}_{eval_dice_score}_{epoch}_model"
+        if eval_dice_score > best_dice_score:
+            best_dice_score = eval_dice_score
+            best_model = name
+        
+        torch.save(model.state_dict(), f"{args.checkpoint}/{name}.pth")
+    
+    return best_model
 
 
 def get_args():
