@@ -7,7 +7,7 @@ import utils
 
 def evaluate(model, val_dataset, device, batch_size = 1) -> Tuple[float, float]:
     """
-    returns the average loss and dice score
+    returns the average cross entropy loss and dice score
     """
     criterion = torch.nn.CrossEntropyLoss()
     

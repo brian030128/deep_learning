@@ -154,8 +154,8 @@ import albumentations as A
 
 transform = A.Compose([
     A.RandomResizedCrop(size=(256, 256), p=1.0),
-    A.HorizontalFlip(p=0.2),
-    A.Affine(p=0.2),
+    A.HorizontalFlip(p=0.5),
+    A.Affine(p=0.5),
 ])
 
 

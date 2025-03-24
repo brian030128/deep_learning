@@ -55,10 +55,17 @@ class DiceLoss(torch.nn.Module):
     def forward(self, inputs, targets):
         """
         Args:
-            inputs: Tensor of shape [B,C,H,W] - network raw logits
-            targets: Tensor of shape [B,H,W] with class indices (0, 1, 2, etc.)
+            inputs: Tensor of shape [B,2,H,W] - network raw logits
+            targets: Tensor of shape [B,H,W] with class indices (0, 1)
         """
-        output_mask = output_2_mask(inputs)
-        score = dice_score(output_mask, targets)
-        return  -torch.log(score)
-
+        # Convert logits to probabilities using softmax
+        probs = torch.nn.functional.softmax(inputs, dim=1)
+        # Get probabilities for class 1 (foreground)
+        pred_mask = probs[:,1,:,:]
+        # Convert target indices to one-hot
+        targets_one_hot = targets.float()
+        
+        score = dice_score(pred_mask, targets_one_hot)
+        score = -torch.log(score)
+        return score.mean()
+        

@@ -1,5 +1,6 @@
 import argparse
 import models.unet
+import models.resnet34_unet
 import oxford_pet
 import torch
 import models
@@ -14,32 +15,33 @@ import json
 
 
 def train(args):
-
     training_dataset = oxford_pet.load_dataset(args.data_path, "train")
     val_dataset = oxford_pet.load_dataset(args.data_path, "valid")
 
-    model = models.unet.UNet(n_channels=3, n_classes=2)
-   # model.load_state_dict(torch.load("saved_models/1742732388.59257_0.02590046527431063_5_model.pth"))
-
+    #model = models.unet.UNet(n_channels=3, n_classes=2)
+    model = models.resnet34_unet.Res34Unet(n_channels=3, n_classes=2)
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     cross_entropy = torch.nn.CrossEntropyLoss()
 
-    best_model = train_inner(model, training_dataset, val_dataset, cross_entropy, optimizer, device, args.epochs, args.batch_size)
+    best_model = train_inner(model, training_dataset, val_dataset, cross_entropy, optimizer, device, epochs= args.epochs,batch_size= args.batch_size)
+    #best_model = "1742793169_0.9079298377037048_6_model"
     model.load_state_dict(torch.load(f"{args.checkpoint}/{best_model}.pth"))
 
     dice_loss = utils.DiceLoss()
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
-    best_model = train_inner(model, training_dataset, val_dataset, dice_loss, optimizer, device, int(args.epochs/3), args.batch_size)
+    best_model = train_inner(model, training_dataset, val_dataset, dice_loss, optimizer, device, epochs=int(args.epochs/2), batch_size=args.batch_size, scheduler=scheduler)
 
 
 
     
     
 
-def train_inner(model, training_dataset, validation_dataset, loss_function, optimizer, device, epochs = 1, batch_size = 3) -> str:
+def train_inner(model, training_dataset, validation_dataset, loss_function, optimizer, device,scheduler=None, epochs = 1, batch_size = 3) -> str:
     """
     Returns the name of the best model.
     """
@@ -48,7 +50,7 @@ def train_inner(model, training_dataset, validation_dataset, loss_function, opti
     metric_file = open(f"metrics/{start}_metrics.jsonl", "w")
 
     best_model = ""
-    best_dice_score = ""
+    best_dice_score = 0
 
     for epoch in range(epochs):
         print(f"Epoch {epoch + 1}/{epochs}")
@@ -78,8 +80,12 @@ def train_inner(model, training_dataset, validation_dataset, loss_function, opti
         model.eval()
         eval_loss, eval_dice_score = eval.evaluate(model, validation_dataset,device, batch_size)
 
-        print(f"Validation Loss after Epoch {epoch + 1}: {eval_loss:.4f}")
+        print(f"CrossEntropy Loss after Epoch {epoch + 1}: {eval_loss:.4f}")
         print(f"Dice Score after Epoch {epoch + 1}: {eval_dice_score:.4f}")
+
+        if scheduler is not None:
+            scheduler.step()
+
 
         json.dump({"loss": train_loss, "dice": eval_dice_score}, metric_file)
         metric_file.write("\n")
@@ -98,7 +104,7 @@ def train_inner(model, training_dataset, validation_dataset, loss_function, opti
 def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
     parser.add_argument('--data_path', type=str, default="dataset", help='path of the input data')
-    parser.add_argument('--epochs', '-e', type=int, default=100, help='number of epochs')
+    parser.add_argument('--epochs', '-e', type=int, default=20, help='number of epochs')
     parser.add_argument('--batch_size', '-b', type=int, default=40, help='batch size')
     parser.add_argument('--learning-rate', '-lr', type=float, default=1e-5, help='learning rate')
     parser.add_argument('--checkpoint',type=str, default='saved_models', help='folder of checkpoints')
