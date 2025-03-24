@@ -2,5 +2,5 @@ albumentations==2.0.5
 matplotlib==3.10.1
 numpy==2.2.4
 Pillow==11.1.0
-torch==2.6.0+cu126
 tqdm==4.67.1
+torch==2.6.0

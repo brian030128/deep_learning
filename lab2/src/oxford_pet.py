@@ -8,7 +8,7 @@ from tqdm import tqdm
 from urllib.request import urlretrieve
 
 class OxfordPetDataset(torch.utils.data.Dataset):
-    def __init__(self, root, mode="train", transform=None):
+    def __init__(self, root, mode="train", transform=None, num_augmentations=3):
 
         assert mode in {"train", "valid", "test"}
 
@@ -20,30 +20,36 @@ class OxfordPetDataset(torch.utils.data.Dataset):
         self.masks_directory = os.path.join(self.root, "annotations", "trimaps")
 
         self.filenames = self._read_split()  # read train/valid/test splits
-
+        self.num_augmentations = num_augmentations if mode == "train" else 1
+        
     def __len__(self):
-        return len(self.filenames) * 2
-
+        return len(self.filenames) * self.num_augmentations
+    
     def __getitem__(self, idx):
         if isinstance(idx, slice):
             indices = range(*idx.indices(len(self)))
             return [self.__getitem__(i) for i in indices]
-
-
-        filename = self.filenames[idx]
+        
+        # Calculate which original image and which augmentation
+        original_idx = idx // self.num_augmentations
+        aug_idx = idx % self.num_augmentations
+        
+        filename = self.filenames[original_idx]
         image_path = os.path.join(self.images_directory, filename + ".jpg")
         mask_path = os.path.join(self.masks_directory, filename + ".png")
-
+        
         image = np.array(Image.open(image_path).convert("RGB"))
-
         trimap = np.array(Image.open(mask_path))
         mask = self._preprocess_mask(trimap)
-
+        
         sample = dict(image=image, mask=mask, trimap=trimap)
-        if self.transform is not None:
-            if idx % 2 == 0:
-                sample = self.transform(**sample)
-
+        
+        # Apply transforms based on augmentation index
+        if self.transform is not None and (aug_idx > 0 or self.mode != "train"):
+            # Use different random seeds for each augmentation
+            random_seed = hash(f"{filename}_{aug_idx}") % 10000
+            sample = self.transform(**sample, seed=random_seed)
+        
         return sample
 
     @staticmethod
@@ -149,7 +155,7 @@ import albumentations as A
 transform = A.Compose([
     A.RandomResizedCrop(size=(256, 256), p=1.0),
     A.HorizontalFlip(p=0.2),
-    A.Affine(p=1),
+    A.Affine(p=0.2),
 ])
 
 

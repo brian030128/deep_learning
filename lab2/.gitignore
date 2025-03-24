@@ -3,5 +3,9 @@ dataset/*
 !dataset/.gitkeep
 saved_models/*
 !saved_models/.gitkeep
+!saved_models/0_unet_best.pth
 metrics/*
 !metrics/.gitkeep
+!metrics/unet_best_metrics.jsonl
+
+**/*.ipynb_checkpoints/**
