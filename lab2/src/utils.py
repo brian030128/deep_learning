@@ -24,7 +24,10 @@ def dice_score(pred_mask, gt_mask):
     return dice
 
 def output_2_mask(output):
-    return torch.argmax(output, axis=1)
+    probs = torch.nn.functional.softmax(output, dim=1)
+        # Get probabilities for class 1 (foreground)
+    pred_mask = probs[:,1,:,:]
+    return pred_mask
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -59,13 +62,8 @@ class DiceLoss(torch.nn.Module):
             targets: Tensor of shape [B,H,W] with class indices (0, 1)
         """
         # Convert logits to probabilities using softmax
-        probs = torch.nn.functional.softmax(inputs, dim=1)
-        # Get probabilities for class 1 (foreground)
-        pred_mask = probs[:,1,:,:]
-        # Convert target indices to one-hot
         targets_one_hot = targets.float()
         
-        score = dice_score(pred_mask, targets_one_hot)
-        score = -torch.log(score)
+        score = dice_score(inputs, targets_one_hot)
         return score.mean()
         

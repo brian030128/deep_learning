@@ -12,30 +12,66 @@ import evaluate as eval
 
 import json
 
+import albumentations as A
 
+res_transform = A.Compose([
+    A.Affine(p=1),
+])
 
-def train(args):
-    training_dataset = oxford_pet.load_dataset(args.data_path, "train")
+def train_res(args):
+    training_dataset = oxford_pet.load_dataset(args.data_path, "train", transform=res_transform)
     val_dataset = oxford_pet.load_dataset(args.data_path, "valid")
 
-    #model = models.unet.UNet(n_channels=3, n_classes=2)
     model = models.resnet34_unet.Res34Unet(n_channels=3, n_classes=2)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    cross_entropy = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    cross_entropy = torch.nn.BCEWithLogitsLoss()
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
-    best_model = train_inner(model, training_dataset, val_dataset, cross_entropy, optimizer, device, epochs= args.epochs,batch_size= args.batch_size)
-    #best_model = "1742793169_0.9079298377037048_6_model"
+    best_model = train_inner(model, training_dataset, val_dataset, cross_entropy, optimizer, device, epochs= args.epochs * 2,batch_size= args.batch_size * 2,scheduler=None)
     model.load_state_dict(torch.load(f"{args.checkpoint}/{best_model}.pth"))
 
     dice_loss = utils.DiceLoss()
+
+    best_model = train_inner(model, training_dataset, val_dataset, dice_loss, optimizer, device, epochs=10, batch_size=args.batch_size, scheduler=scheduler)
+
+    model.load_state_dict(torch.load(f"{args.checkpoint}/{best_model}.pth"))
+    torch.save(model.state_dict(), f"{args.checkpoint}/best_res.pth")
+
+unet_transform = A.Compose([
+    A.RandomResizedCrop(size=(256, 256), p=1.0),
+    A.HorizontalFlip(p=0.2),
+    A.Affine(p=1),
+])
+
+def train_unet(args):
+    training_dataset = oxford_pet.load_dataset(args.data_path, "train", transform=unet_transform)
+    val_dataset = oxford_pet.load_dataset(args.data_path, "valid")
+
+    model = models.unet.UNet(n_channels=3, n_classes=2)
+    #model = models.resnet34_unet.Res34Unet(n_channels=3, n_classes=2)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    cross_entropy = torch.nn.BCEWithLogitsLoss()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
-    best_model = train_inner(model, training_dataset, val_dataset, dice_loss, optimizer, device, epochs=int(args.epochs/2), batch_size=args.batch_size, scheduler=scheduler)
+    best_model = train_inner(model, training_dataset, val_dataset, cross_entropy, optimizer, device, epochs= args.epochs,batch_size= args.batch_size)
+    #best_model = "1742835858_0.901154637336731_49_model"
+    model.load_state_dict(torch.load(f"{args.checkpoint}/{best_model}.pth"))
 
+    dice_loss = utils.DiceLoss()
+
+
+    best_model = train_inner(model, training_dataset, val_dataset, dice_loss, optimizer, device, epochs=10, batch_size=args.batch_size, scheduler=scheduler)
+    
+    model.load_state_dict(torch.load(f"{args.checkpoint}/{best_model}.pth"))
+    torch.save(model.state_dict(), f"{args.checkpoint}/best_u.pth")
 
 
     
@@ -65,7 +101,7 @@ def train_inner(model, training_dataset, validation_dataset, loss_function, opti
 
                 optimizer.zero_grad()
                 outputs = model(images)
-                loss = loss_function(outputs, masks)
+                loss = loss_function(utils.output_2_mask(outputs), masks.float())
                 loss.backward()
                 optimizer.step()
 
@@ -104,8 +140,8 @@ def train_inner(model, training_dataset, validation_dataset, loss_function, opti
 def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks')
     parser.add_argument('--data_path', type=str, default="dataset", help='path of the input data')
-    parser.add_argument('--epochs', '-e', type=int, default=20, help='number of epochs')
-    parser.add_argument('--batch_size', '-b', type=int, default=40, help='batch size')
+    parser.add_argument('--epochs', '-e', type=int, default=50, help='number of epochs')
+    parser.add_argument('--batch_size', '-b', type=int, default=45, help='batch size')
     parser.add_argument('--learning-rate', '-lr', type=float, default=1e-5, help='learning rate')
     parser.add_argument('--checkpoint',type=str, default='saved_models', help='folder of checkpoints')
 
@@ -113,5 +149,6 @@ def get_args():
  
 if __name__ == "__main__":
     args = get_args()
-    train(args)
+    train_res(args)
+    train_unet(args)
 

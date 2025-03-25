@@ -8,10 +8,11 @@ from tqdm import tqdm
 from urllib.request import urlretrieve
 
 class OxfordPetDataset(torch.utils.data.Dataset):
-    def __init__(self, root, mode="train", transform=None, num_augmentations=3):
+    def __init__(self, root, mode="train", transform=None, num_augmentations=3, seed=1000):
 
         assert mode in {"train", "valid", "test"}
 
+        self.seed = seed
         self.root = root
         self.mode = mode
         self.transform = transform
@@ -47,7 +48,7 @@ class OxfordPetDataset(torch.utils.data.Dataset):
         # Apply transforms based on augmentation index
         if self.transform is not None and (aug_idx > 0 or self.mode != "train"):
             # Use different random seeds for each augmentation
-            random_seed = hash(f"{filename}_{aug_idx}") % 10000
+            random_seed = self.seed + idx
             sample = self.transform(**sample, seed=random_seed)
         
         return sample
@@ -150,16 +151,10 @@ def extract_archive(filepath):
         shutil.unpack_archive(filepath, extract_dir)
 
 
-import albumentations as A
-
-transform = A.Compose([
-    A.RandomResizedCrop(size=(256, 256), p=1.0),
-    A.HorizontalFlip(p=0.5),
-    A.Affine(p=0.5),
-])
 
 
-def load_dataset(data_path, mode):
+
+def load_dataset(data_path, mode, transform=None):
     OxfordPetDataset.download(data_path)
     return SimpleOxfordPetDataset(data_path, mode,transform=transform if mode == "train" else None)
 

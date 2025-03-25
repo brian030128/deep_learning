@@ -70,8 +70,6 @@ class Res34Unet(nn.Module):
         self.layer3 = ResLayer(128, 256, blocks=6, stride=2)  # conv4_x
         self.layer4 = ResLayer(256, 512, blocks=3, stride=2)  # conv5_x
         
-        # Middle part and decoder
-        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
         self.mid = DoubleConv(in_channels=512, out_channels=256)
         
         self.up1 = Up(256, 512, 32)
@@ -95,8 +93,7 @@ class Res34Unet(nn.Module):
         x3 = self.layer3(x2)     # 256 channels
         x4 = self.layer4(x3)     # 512 channels
         
-        x5 = self.avg_pool(x4)
-        mid = self.mid(x5)
+        mid = self.mid(x4)
         
         # Decoder path
         o = self.up1(mid, x4)
@@ -109,20 +106,63 @@ class Res34Unet(nn.Module):
         
         return logits
 
+class CBAM(nn.Module):
+    """ Convolutional Block Attention Module (CBAM) """
+    def __init__(self, channels, reduction=16):
+        super(CBAM, self).__init__()
+        
+        # Channel Attention
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(channels, channels // reduction, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels // reduction, channels, kernel_size=1, bias=False),
+            nn.Sigmoid()
+        )
+
+        # Spatial Attention
+        self.conv_spatial = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
+        self.sigmoid = nn.Sigmoid()
+    
+    def forward(self, x):
+        # Channel Attention
+        avg_out = self.fc(self.avg_pool(x))
+        max_out = self.fc(self.max_pool(x))
+        channel_att = avg_out + max_out
+        x = x * channel_att
+        
+        # Spatial Attention
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        spatial_att = self.conv_spatial(torch.cat([avg_out, max_out], dim=1))
+        spatial_att = self.sigmoid(spatial_att)
+        
+        return x * spatial_att
+
 class Up(nn.Module):
-    """Upscaling then double conv"""
+    """ Upscaling then CBAM + BatchNorm + ReLU """
     def __init__(self, in_channels, residual_channels, out_channels, mid_channels=32):
         super().__init__()
         self.up = nn.ConvTranspose2d(in_channels, mid_channels, kernel_size=2, stride=2)
-        self.conv = DoubleConv(mid_channels+residual_channels, out_channels)
-        
+        self.conv = DoubleConv(mid_channels + residual_channels, out_channels)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=False)
+        self.cbam = CBAM(out_channels)
+    
     def forward(self, x1, x2):
         x1 = self.up(x1)
-        # input is CHW
+
+        # Padding for size mismatch
         diffY = x2.size()[2] - x1.size()[2]
         diffX = x2.size()[3] - x1.size()[3]
         x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
                         diffY // 2, diffY - diffY // 2])
         
         x = torch.cat([x1, x2], dim=1)
-        return self.conv(x)
+        x = self.conv(x)
+        x = self.relu(x)
+        x = self.bn(x)
+        x = self.cbam(x)  # Apply CBAM attention
+        
+        return x
